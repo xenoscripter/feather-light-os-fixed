@@ -1,0 +1,41 @@
+name: Build and test Feather Light OS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso p7zip-full qemu-system-x86 ovmf
+      - name: Build ISO
+        run: sh build.sh
+      - name: Inspect ISO
+        run: |
+          file out/feather-light-os-fixed-x86_64.iso
+          sha256sum out/feather-light-os-fixed-x86_64.iso
+      - name: BIOS boot test
+        run: |
+          timeout 90s qemu-system-x86_64 \
+            -accel tcg \
+            -m 1024 \
+            -smp 1 \
+            -cdrom out/feather-light-os-fixed-x86_64.iso \
+            -boot d \
+            -nographic \
+            -serial mon:stdio 2>&1 | tee qemu.log || true
+          grep -Eqi 'login:|localhost login:|Welcome to Alpine|Alpine Linux' qemu.log
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: feather-light-os-fixed-x86_64
+          path: |
+            out/feather-light-os-fixed-x86_64.iso
+            out/SHA256SUMS
