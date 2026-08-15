@@ -14,11 +14,14 @@ INITRD=$(find "$ISODIR" -type f -name initramfs-lts -print -quit)
 [ -f "$KERNEL" ] && [ -f "$INITRD" ]
 KERNEL_REL=${KERNEL#"$ISODIR/"}
 INITRD_REL=${INITRD#"$ISODIR/"}
+MENU=$(find "$ISODIR" -type f -name menu.c32 -print -quit || true)
+MENU_LINE=""
+[ -n "$MENU" ] && MENU_LINE="UI menu.c32"
 cat > "$BOOTDIR/isolinux.cfg" <<EOF
 DEFAULT normal
 PROMPT 0
 TIMEOUT 100
-UI menu.c32
+$MENU_LINE
 MENU TITLE FEATHER LIGHT OS
 
 LABEL normal
