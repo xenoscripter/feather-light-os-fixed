@@ -28,25 +28,25 @@ LABEL normal
   MENU LABEL Normal Boot
   KERNEL /$KERNEL_REL
   INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main
+  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main console=ttyS0,115200n8 edd=off
 
 LABEL safe
   MENU LABEL Safe Hardware Mode
   KERNEL /$KERNEL_REL
   INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main nomodeset pci=nomsi
+  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main nomodeset pci=nomsi console=ttyS0,115200n8 edd=off
 
 LABEL graphics
   MENU LABEL Safe Graphics Mode
   KERNEL /$KERNEL_REL
   INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main nomodeset
+  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main nomodeset console=ttyS0,115200n8 edd=off
 
 LABEL recovery
   MENU LABEL Recovery Shell
   KERNEL /$KERNEL_REL
   INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main init=/bin/sh
+  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main init=/bin/sh console=ttyS0,115200n8 edd=off
 EOF
 ISOLINUX_REL=${BOOTDIR#"$ISODIR/"}
 ISODHPFX=$(find "$ISODIR" -type f -name isohdpfx.bin -print -quit || true)
