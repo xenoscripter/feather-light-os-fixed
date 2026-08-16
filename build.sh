@@ -32,7 +32,11 @@ cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 
+# mkimage's --usermode path is intentionally disabled here: the build runs as
+# root in the privileged Alpine container, and mkimage rejects --usermode as root.
+# Keep cache/database paths explicit for the kernel package build.
 if [ -f "$APORTS/scripts/mkimg.base.sh" ]; then
+    sed -i "s#--usermode##g" "$APORTS/scripts/mkimg.base.sh"
     sed -i "s#--cache-dir \"\$APKROOT/etc/apk/cache\"#--cache-dir \"$APK_CACHE_DIR\"#g" "$APORTS/scripts/mkimg.base.sh"
 fi
 
