@@ -21,7 +21,7 @@ cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$APORTS/scripts/genapkovl-feather.sh"
 mkdir -p /root/.abuild
-if [ ! -f /root/.abuild/abuild.conf ]; then abuild-keygen -ain >/dev/null 2>&1 || true; fi
+if [ ! -f /root/.abuild/abuild.conf ]; then abuild-keygen -a -n >/dev/null 2>&1 || true; fi
 export TMPDIR="$WORK/tmp"
 mkdir -p "$TMPDIR"
 sh "$APORTS/scripts/mkimage.sh" --tag "$TAG" --outdir "$OUT" --workdir "$WORK/mkimage" --arch "$ARCH" --repository "https://dl-cdn.alpinelinux.org/alpine/edge/main" --repository "https://dl-cdn.alpinelinux.org/alpine/edge/community" --profile feather
