@@ -15,13 +15,13 @@ if [ "${ALPINE_NATIVE:-0}" != "1" ]; then
 fi
 apk update
 apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mtools curl jq ca-certificates abuild
+mkdir -p /var/cache/apk /var/lib/apk /etc/apk
+ln -sf /var/cache/apk /etc/apk/cache
 if [ ! -d "$APORTS/.git" ]; then git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"; fi
 mkdir -p "$APORTS/scripts"
 cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
-# Alpine Edge apk removed --no-chown; current mkimage scripts still pass it.
-# Remove the obsolete option so root-mode image creation works with current Edge.
 grep -RIl -- '--no-chown' "$APORTS/scripts" | while read -r f; do sed -i 's/[[:space:]]--no-chown//g' "$f"; done
 mkdir -p /root/.abuild
 if [ ! -f /root/.abuild/abuild.conf ]; then abuild-keygen -a -n >/dev/null 2>&1 || true; fi
