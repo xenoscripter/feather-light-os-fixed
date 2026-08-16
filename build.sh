@@ -8,6 +8,7 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 APORTS="$WORK/aports"
 rm -rf "$WORK" "$OUT"
 mkdir -p "$WORK" "$OUT"
+
 if [ "${ALPINE_NATIVE:-0}" != "1" ]; then
     command -v docker >/dev/null 2>&1 || { echo "Docker is required (or set ALPINE_NATIVE=1 on Alpine)." >&2; exit 1; }
     docker run --rm --privileged \
@@ -27,18 +28,20 @@ export TMPDIR="$ROOT/$WORK/tmp"
 if [ ! -d "$APORTS/.git" ]; then
     git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"
 fi
+
 mkdir -p "$APORTS/scripts"
 cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 
-# mkimage's --usermode path is intentionally disabled here: the build runs as
-# root in the privileged Alpine container, and mkimage rejects --usermode as root.
-# Keep cache/database paths explicit for the kernel package build.
-if [ -f "$APORTS/scripts/mkimg.base.sh" ]; then
-    sed -i "s#--usermode##g" "$APORTS/scripts/mkimg.base.sh"
-    sed -i "s#--cache-dir \"\$APKROOT/etc/apk/cache\"#--cache-dir \"$APK_CACHE_DIR\"#g" "$APORTS/scripts/mkimg.base.sh"
-fi
+# Alpine's newer apk rejects the legacy --no-chown argument used by older
+# mkimage scripts. The resulting "--usermode not allowed as root" message is
+# misleading: it is triggered by the obsolete --no-chown option. Remove that
+# option from the mkimage scripts before invoking the image builder.
+find "$APORTS/scripts" -type f -name 'mkimage*.sh' -o -name 'mkimg*.sh' 2>/dev/null | while IFS= read -r script; do
+    [ -f "$script" ] || continue
+    sed -i 's/[[:space:]]--no-chown\([[:space:]]\|$\)/ /g' "$script"
+done
 
 mkdir -p /root/.abuild
 if [ ! -f /root/.abuild/abuild.conf ]; then
