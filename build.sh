@@ -10,27 +10,56 @@ rm -rf "$WORK" "$OUT"
 mkdir -p "$WORK" "$OUT"
 if [ "${ALPINE_NATIVE:-0}" != "1" ]; then
     command -v docker >/dev/null 2>&1 || { echo "Docker is required (or set ALPINE_NATIVE=1 on Alpine)." >&2; exit 1; }
-    docker run --rm --privileged -v "$ROOT":/src -w /src alpine:edge sh -c 'apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mtools curl jq ca-certificates abuild >/dev/null && ALPINE_NATIVE=1 sh /src/build.sh "$1" "$2"' -- "$WORK" "$OUT"
+    docker run --rm --privileged \
+      -v "$ROOT":/src -w /src alpine:edge \
+      sh -c 'apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mtools curl jq ca-certificates abuild >/dev/null && ALPINE_NATIVE=1 sh /src/build.sh "$1" "$2"' -- "$WORK" "$OUT"
     exit $?
 fi
+
 apk update
 apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mtools curl jq ca-certificates abuild
-mkdir -p /var/cache/apk /var/lib/apk /etc/apk
-ln -sf /var/cache/apk /etc/apk/cache
-if [ ! -d "$APORTS/.git" ]; then git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"; fi
+
+# mkimage expects a writable APK cache/database. Keep these paths inside the
+# build workspace so they are guaranteed to exist in the container.
+mkdir -p "$WORK/apk-cache" "$WORK/apk-db" "$WORK/tmp" "$WORK/mkimage"
+export APK_CACHE_DIR="$ROOT/$WORK/apk-cache"
+export APK_DB_DIR="$ROOT/$WORK/apk-db"
+export TMPDIR="$ROOT/$WORK/tmp"
+
+# Use an isolated apk configuration for the host-side mkimage environment.
+cat > "$WORK/apk.conf" <<EOF
+CACHE_DIR=$APK_CACHE_DIR
+EOF
+export APK_CONFIG="$ROOT/$WORK/apk.conf"
+
+if [ ! -d "$APORTS/.git" ]; then
+    git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"
+fi
 mkdir -p "$APORTS/scripts"
 cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
-# Compatibility fixes for current Alpine Edge apk-tools.
-grep -RIl -- '--no-chown' "$APORTS/scripts" | while read -r f; do sed -i 's/[[:space:]]--no-chown//g' "$f"; done
-mkdir -p "$WORK/mkimage/apk-cache"
-sed -i 's#--cache-dir "$APKROOT/etc/apk/cache"#--cache-dir "$WORKDIR/apk-cache"#' "$APORTS/scripts/mkimg.base.sh"
+
+# Patch only the cache argument used by mkimage's chroot APK setup. The
+# database must live beside the cache, not at a missing /etc/apk location.
+if [ -f "$APORTS/scripts/mkimg.base.sh" ]; then
+    sed -i "s#--cache-dir \"\$APKROOT/etc/apk/cache\"#--cache-dir \"$APK_CACHE_DIR\"#g" "$APORTS/scripts/mkimg.base.sh"
+fi
+
 mkdir -p /root/.abuild
-if [ ! -f /root/.abuild/abuild.conf ]; then abuild-keygen -a -n >/dev/null 2>&1 || true; fi
-export TMPDIR="$WORK/tmp"
-mkdir -p "$TMPDIR"
-sh "$APORTS/scripts/mkimage.sh" --tag "$TAG" --outdir "$OUT" --workdir "$WORK/mkimage" --arch "$ARCH" --repository "https://dl-cdn.alpinelinux.org/alpine/edge/main" --repository "https://dl-cdn.alpinelinux.org/alpine/edge/community" --profile feather
+if [ ! -f /root/.abuild/abuild.conf ]; then
+    abuild-keygen -a -n >/dev/null 2>&1 || true
+fi
+
+sh "$APORTS/scripts/mkimage.sh" \
+  --tag "$TAG" \
+  --outdir "$OUT" \
+  --workdir "$WORK/mkimage" \
+  --arch "$ARCH" \
+  --repository "https://dl-cdn.alpinelinux.org/alpine/edge/main" \
+  --repository "https://dl-cdn.alpinelinux.org/alpine/edge/community" \
+  --profile feather
+
 ISO="$OUT/feather-light-os-v2-cosmic-x86_64.iso"
 GENERATED=$(find "$OUT" -maxdepth 1 -type f -name '*.iso' -print -quit)
 [ -n "$GENERATED" ] || { echo "No ISO was generated" >&2; exit 1; }
