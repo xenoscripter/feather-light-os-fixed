@@ -22,43 +22,41 @@ apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mto
 mkdir -p "$WORK/apk-cache" "$WORK/tmp" "$WORK/mkimage"
 export TMPDIR="$ROOT/$WORK/tmp"
 
-# apk-tools v3 requires an APK cache for alternate roots. mkimage invokes
-# update-kernel to build the kernel in a temporary alternate root, so patch the
-# actual update-kernel executable used by mkimage. The cache must be created
-# before the first `apk -p ROOT ... --update-cache` call.
+# apk-tools v3 requires an explicit writable cache for alternate roots.
+# update-kernel builds the kernel in a temporary ROOT and invokes apk with -p.
+# Patch the actual helper so every alternate-root apk operation uses a cache
+# inside that ROOT instead of relying on the host /etc/apk/cache.
 if [ -x /sbin/update-kernel ]; then
     cp /sbin/update-kernel "$WORK/update-kernel.orig"
     awk '
       { print }
       $0 ~ /^[[:space:]]*ROOT=[^ ]*$/ && !done {
-        print "mkdir -p \"$ROOT/etc/apk/cache\" \"$ROOT/etc/apk\""
-        print "mkdir -p \"$ROOT/var/lib/apk\""
+        print "mkdir -p \"$ROOT/etc/apk/cache\" \"$ROOT/etc/apk\" \"$ROOT/lib/apk/db\""
         done=1
       }
     ' "$WORK/update-kernel.orig" > "$WORK/update-kernel.patched"
     install -m 0755 "$WORK/update-kernel.patched" /sbin/update-kernel
 fi
 
-# Some Alpine releases define ROOT with additional quoting/assignments. If the
-# exact insertion point was not found, patch the APK helper itself so every
-# alternate-root transaction initializes its database/cache first.
-if ! grep -q 'mkdir -p "$ROOT/etc/apk/cache"' /sbin/update-kernel 2>/dev/null; then
-    awk '
-      { print }
-      $0 ~ /^[[:space:]]*_apk\(\)[[:space:]]*\{/ && !done {
-        print "    mkdir -p \"$ROOT/etc/apk/cache\" \"$ROOT/etc/apk\" \"$ROOT/var/lib/apk\""
-        done=1
-      }
-    ' /sbin/update-kernel > "$WORK/update-kernel.patched2"
-    install -m 0755 "$WORK/update-kernel.patched2" /sbin/update-kernel
-fi
+# Patch the _apk helper directly as a fallback and explicitly select the
+# alternate-root cache. This is the critical fix for apk-tools v3 cache setup.
+awk '
+  { print }
+  $0 ~ /--repositories-file "\$REPOSITORIES_FILE"/ && !done {
+    print "        --cache-dir \"$ROOT/etc/apk/cache\" $*"
+    done=1
+  }
+' /sbin/update-kernel > "$WORK/update-kernel.cache"
+install -m 0755 "$WORK/update-kernel.cache" /sbin/update-kernel
 
-# Final sanity check: the helper actually used by mkimage must initialize the
-# alternate APK root before apk is called.
-grep -q 'mkdir -p "$ROOT/etc/apk/cache"' /sbin/update-kernel || {
-    echo "ERROR: failed to patch update-kernel APK cache initialization" >&2
+if ! grep -q 'mkdir -p "$ROOT/etc/apk/cache"' /sbin/update-kernel; then
+    echo "ERROR: failed to initialize update-kernel APK cache" >&2
     exit 1
-}
+fi
+if ! grep -q -- '--cache-dir "$ROOT/etc/apk/cache"' /sbin/update-kernel; then
+    echo "ERROR: failed to set update-kernel alternate-root cache" >&2
+    exit 1
+fi
 
 if [ ! -d "$APORTS/.git" ]; then
     git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"
@@ -69,8 +67,7 @@ cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 
 # apk-tools v3 treats --no-chown as an alias for --usermode, which is rejected
-# when mkimage is running as root. Remove both legacy flags from the checked-out
-# mkimage scripts before invoking the builder.
+# when mkimage is running as root. Remove both legacy flags from mkimage helpers.
 find "$APORTS/scripts" -type f -name '*.sh' -exec sed -i \
   -e 's/--no-chown//g' \
   -e 's/--usermode//g' {} +
@@ -85,8 +82,6 @@ if [ ! -f /root/.abuild/abuild.conf ]; then
     abuild-keygen -a -n >/dev/null 2>&1 || true
 fi
 
-# mkimage needs an absolute workdir because update-kernel uses a separate
-# temporary alternate root during kernel generation.
 sh "$APORTS/scripts/mkimage.sh" \
   --tag "$TAG" \
   --outdir "$OUT" \
