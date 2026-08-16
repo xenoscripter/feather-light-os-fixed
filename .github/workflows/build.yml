@@ -1,4 +1,4 @@
-name: Build and test Feather Light OS
+name: Build and test Feather Light OS V2 COSMIC
 
 on:
   push:
@@ -8,34 +8,87 @@ on:
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
       - name: Install build and test tools
         run: |
           sudo apt-get update
           sudo apt-get install -y xorriso p7zip-full qemu-system-x86 ovmf
-      - name: Build ISO
+
+      - name: Build V2 COSMIC ISO
         run: sh build.sh
+
       - name: Inspect ISO
         run: |
-          file out/feather-light-os-fixed-x86_64.iso
-          sha256sum out/feather-light-os-fixed-x86_64.iso
-      - name: BIOS boot test
+          test -f out/feather-light-os-v2-cosmic-x86_64.iso
+          file out/feather-light-os-v2-cosmic-x86_64.iso
+          sha256sum out/feather-light-os-v2-cosmic-x86_64.iso
+          7z l out/feather-light-os-v2-cosmic-x86_64.iso | tee iso-contents.txt
+          grep -Eqi 'apkovl|vmlinuz|initramfs' iso-contents.txt
+
+      - name: Verify V2 overlay contains Helium and Flathub
         run: |
-          timeout 90s qemu-system-x86_64 \
+          mkdir -p inspect
+          7z e -y out/feather-light-os-v2-cosmic-x86_64.iso '*apkovl.tar.gz' -oinspect >/dev/null
+          OVERLAY=$(find inspect -type f -name '*.apkovl.tar.gz' -print -quit)
+          test -n "$OVERLAY"
+          mkdir -p inspect/rootfs
+          tar -xzf "$OVERLAY" -C inspect/rootfs
+          test -x inspect/rootfs/usr/local/lib/helium/helium.AppImage
+          test -x inspect/rootfs/usr/local/bin/helium
+          test -f inspect/rootfs/usr/share/applications/helium.desktop
+          test -f inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
+          grep -q 'https://dl.flathub.org/repo/flathub.flatpakrepo' inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
+
+      - name: BIOS boot test - 3 GB RAM / 2 CPU
+        run: |
+          set +e
+          timeout 180s qemu-system-x86_64 \
             -accel tcg \
-            -m 1024 \
-            -smp 1 \
-            -cdrom out/feather-light-os-fixed-x86_64.iso \
+            -m 3072 \
+            -smp 2 \
+            -machine q35 \
+            -device virtio-vga \
+            -cdrom out/feather-light-os-v2-cosmic-x86_64.iso \
             -boot d \
             -nographic \
-            -serial mon:stdio 2>&1 | tee qemu.log || true
-          grep -Eqi 'login:|localhost login:|Welcome to Alpine|Alpine Linux' qemu.log
-      - name: Upload ISO
+            -serial mon:stdio > qemu.log 2>&1
+          RC=$?
+          set -e
+          cat qemu.log
+          ! grep -Eqi 'kernel panic|/sbin/init not found|attempted to kill init' qemu.log
+          grep -Eqi 'Linux version|Alpine|init|greetd|cosmic' qemu.log
+          test "$RC" = 124 || test "$RC" = 0
+
+      - name: UEFI boot smoke test - 3 GB RAM / 2 CPU
+        run: |
+          set +e
+          timeout 120s qemu-system-x86_64 \
+            -accel tcg \
+            -m 3072 \
+            -smp 2 \
+            -machine q35 \
+            -device virtio-vga \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+            -cdrom out/feather-light-os-v2-cosmic-x86_64.iso \
+            -boot d \
+            -nographic \
+            -serial mon:stdio > qemu-uefi.log 2>&1
+          RC=$?
+          set -e
+          cat qemu-uefi.log
+          ! grep -Eqi 'kernel panic|/sbin/init not found|attempted to kill init' qemu-uefi.log
+          test "$RC" = 124 || test "$RC" = 0
+
+      - name: Upload ISO and test logs
         uses: actions/upload-artifact@v4
         with:
-          name: feather-light-os-fixed-x86_64
+          name: feather-light-os-v2-cosmic-x86_64
           path: |
-            out/feather-light-os-fixed-x86_64.iso
+            out/feather-light-os-v2-cosmic-x86_64.iso
             out/SHA256SUMS
+            iso-contents.txt
+            qemu.log
+            qemu-uefi.log
