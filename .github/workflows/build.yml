@@ -5,6 +5,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# V2 build test: mkimage/APK compatibility fix applied in build.sh.
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -45,16 +46,7 @@ jobs:
       - name: BIOS boot test - 3 GB RAM / 2 CPU
         run: |
           set +e
-          timeout 180s qemu-system-x86_64 \
-            -accel tcg \
-            -m 3072 \
-            -smp 2 \
-            -machine q35 \
-            -device virtio-vga \
-            -cdrom out/feather-light-os-v2-cosmic-x86_64.iso \
-            -boot d \
-            -nographic \
-            -serial mon:stdio > qemu.log 2>&1
+          timeout 180s qemu-system-x86_64 -accel tcg -m 3072 -smp 2 -machine q35 -device virtio-vga -audiodev driver=none,id=audio0 -cdrom out/feather-light-os-v2-cosmic-x86_64.iso -boot d -nographic -serial mon:stdio > qemu.log 2>&1
           RC=$?
           set -e
           cat qemu.log
@@ -65,17 +57,7 @@ jobs:
       - name: UEFI boot smoke test - 3 GB RAM / 2 CPU
         run: |
           set +e
-          timeout 120s qemu-system-x86_64 \
-            -accel tcg \
-            -m 3072 \
-            -smp 2 \
-            -machine q35 \
-            -device virtio-vga \
-            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-            -cdrom out/feather-light-os-v2-cosmic-x86_64.iso \
-            -boot d \
-            -nographic \
-            -serial mon:stdio > qemu-uefi.log 2>&1
+          timeout 120s qemu-system-x86_64 -accel tcg -m 3072 -smp 2 -machine q35 -device virtio-vga -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd -cdrom out/feather-light-os-v2-cosmic-x86_64.iso -boot d -nographic -serial mon:stdio > qemu-uefi.log 2>&1
           RC=$?
           set -e
           cat qemu-uefi.log
