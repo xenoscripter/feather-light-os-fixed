@@ -1,59 +1,60 @@
 #!/bin/sh
 set -eu
-ALPINE_VERSION="3.22"; ARCH="x86_64"
-ISO_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/${ARCH}/alpine-standard-${ALPINE_VERSION}.0-${ARCH}.iso"
-WORK="${1:-work}"; OUT="${2:-out}"
-rm -rf "$WORK" "$OUT"; mkdir -p "$WORK/iso" "$OUT"
-curl -fL "$ISO_URL" -o "$WORK/alpine.iso"
-7z x -y "$WORK/alpine.iso" -o"$WORK/iso" >/dev/null
-ISODIR="$(cd "$WORK/iso" && pwd)"
-BOOTDIR=$(dirname "$(find "$ISODIR" -type f -name isolinux.bin -print -quit)")
-[ -n "$BOOTDIR" ]
-KERNEL=$(find "$ISODIR" -type f -name vmlinuz-lts -print -quit)
-INITRD=$(find "$ISODIR" -type f -name initramfs-lts -print -quit)
-[ -f "$KERNEL" ] && [ -f "$INITRD" ]
-KERNEL_REL=${KERNEL#"$ISODIR/"}
-INITRD_REL=${INITRD#"$ISODIR/"}
-MENU=$(find "$ISODIR" -type f -name menu.c32 -print -quit || true)
-MENU_LINE=""
-[ -n "$MENU" ] && MENU_LINE="UI menu.c32"
-cat > "$BOOTDIR/isolinux.cfg" <<EOF
-DEFAULT normal
-PROMPT 0
-TIMEOUT 100
-$MENU_LINE
-MENU TITLE FEATHER LIGHT OS
 
-LABEL normal
-  MENU LABEL Normal Boot
-  KERNEL /$KERNEL_REL
-  INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main console=ttyS0,115200n8 edd=off
+WORK="${1:-work}"
+OUT="${2:-out}"
+ARCH="x86_64"
+TAG="edge"
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+APORTS="$WORK/aports"
 
-LABEL safe
-  MENU LABEL Safe Hardware Mode
-  KERNEL /$KERNEL_REL
-  INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main nomodeset pci=nomsi console=ttyS0,115200n8 edd=off
+rm -rf "$WORK" "$OUT"
+mkdir -p "$WORK" "$OUT"
 
-LABEL graphics
-  MENU LABEL Safe Graphics Mode
-  KERNEL /$KERNEL_REL
-  INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main nomodeset console=ttyS0,115200n8 edd=off
+if [ "${ALPINE_NATIVE:-0}" != "1" ]; then
+    command -v docker >/dev/null 2>&1 || { echo "Docker is required (or set ALPINE_NATIVE=1 on Alpine)." >&2; exit 1; }
+    docker run --rm --privileged \
+      -v "$ROOT":/src \
+      -w /src \
+      alpine:edge \
+      sh -c 'apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mtools curl jq ca-certificates abuild >/dev/null && sh /src/build.sh "$1" "$2"' -- "$WORK" "$OUT"
+    exit $?
+fi
 
-LABEL recovery
-  MENU LABEL Recovery Shell
-  KERNEL /$KERNEL_REL
-  INITRD /$INITRD_REL
-  APPEND alpine_repo=http://dl-cdn.alpinelinux.org/alpine/v3.22/main init=/bin/sh console=ttyS0,115200n8 edd=off
-EOF
-ISOLINUX_REL=${BOOTDIR#"$ISODIR/"}
-ISODHPFX=$(find "$ISODIR" -type f -name isohdpfx.bin -print -quit || true)
-EFIBOOT=$(find "$ISODIR" -type f -name efiboot.img -print -quit || true)
-ARGS="-as mkisofs -o $OUT/feather-light-os-fixed-x86_64.iso -b $ISOLINUX_REL/isolinux.bin -c $ISOLINUX_REL/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table"
-[ -n "$ISODHPFX" ] && ARGS="$ARGS -isohybrid-mbr $ISODHPFX"
-[ -n "$EFIBOOT" ] && ARGS="$ARGS -eltorito-alt-boot -e ${EFIBOOT#"$ISODIR/"} -no-emul-boot -isohybrid-gpt-basdat"
-# shellcheck disable=SC2086
-xorriso $ARGS "$ISODIR"
-sha256sum "$OUT/feather-light-os-fixed-x86_64.iso" > "$OUT/SHA256SUMS"
+apk update
+apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mtools curl jq ca-certificates abuild
+
+if [ ! -d "$APORTS/.git" ]; then
+    git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"
+fi
+
+mkdir -p "$APORTS/scripts"
+cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
+cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
+chmod +x "$APORTS/scripts/genapkovl-feather.sh"
+
+# mkimage uses signing keys for the generated modloop/apks metadata.
+mkdir -p /root/.abuild
+if [ ! -f /root/.abuild/abuild.conf ]; then
+    abuild-keygen -ain >/dev/null 2>&1 || true
+fi
+
+export TMPDIR="$WORK/tmp"
+mkdir -p "$TMPDIR"
+
+sh "$APORTS/scripts/mkimage.sh" \
+  --tag "$TAG" \
+  --outdir "$OUT" \
+  --workdir "$WORK/mkimage" \
+  --arch "$ARCH" \
+  --repository "https://dl-cdn.alpinelinux.org/alpine/edge/main" \
+  --repository "https://dl-cdn.alpinelinux.org/alpine/edge/community" \
+  --profile feather
+
+ISO="$OUT/feather-light-os-v2-cosmic-x86_64.iso"
+GENERATED=$(find "$OUT" -maxdepth 1 -type f -name '*.iso' -print -quit)
+[ -n "$GENERATED" ] || { echo "No ISO was generated" >&2; exit 1; }
+if [ "$GENERATED" != "$ISO" ]; then mv "$GENERATED" "$ISO"; fi
+sha256sum "$ISO" > "$OUT/SHA256SUMS"
+
+printf '%s\n' "Feather Light OS V2 COSMIC ISO: $ISO"
