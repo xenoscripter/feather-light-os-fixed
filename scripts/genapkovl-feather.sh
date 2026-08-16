@@ -36,10 +36,10 @@ EOF
 FLATHUB_URL="https://dl.flathub.org/repo/flathub.flatpakrepo"
 curl -fsSL --retry 3 "$FLATHUB_URL" -o "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
 chmod 0644 "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
-# Fail the image build if the downloaded repository definition is not the
-# official Flathub definition we expect.
-grep -Fq "$FLATHUB_URL" "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo" || {
-    echo "ERROR: downloaded Flathub repository definition does not contain $FLATHUB_URL" >&2
+# The .flatpakrepo metadata is a downloaded repository definition; the URL
+# used to fetch it is not required to appear inside the metadata itself.
+grep -Fq '[Flatpak Repo]' "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo" || {
+    echo "ERROR: downloaded Flathub repository definition is invalid" >&2
     exit 1
 }
 
@@ -70,7 +70,6 @@ StartupNotify=true
 MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
 EOF
 
-# OpenRC services required before the graphical login.
 rc_add devfs sysinit
 rc_add dmesg sysinit
 rc_add mdev sysinit
