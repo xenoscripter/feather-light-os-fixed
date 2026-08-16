@@ -5,7 +5,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# V2 build test: mkimage/APK compatibility fix applied in build.sh.
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -23,6 +22,7 @@ jobs:
 
       - name: Inspect ISO
         run: |
+          set -euxo pipefail
           test -f out/feather-light-os-v2-cosmic-x86_64.iso
           file out/feather-light-os-v2-cosmic-x86_64.iso
           sha256sum out/feather-light-os-v2-cosmic-x86_64.iso
@@ -31,17 +31,31 @@ jobs:
 
       - name: Verify V2 overlay contains Helium and Flathub
         run: |
+          set -euxo pipefail
+          ISO=out/feather-light-os-v2-cosmic-x86_64.iso
+          rm -rf inspect
           mkdir -p inspect
-          7z e -y out/feather-light-os-v2-cosmic-x86_64.iso '*apkovl.tar.gz' -oinspect >/dev/null
+          # Resolve the actual archive path from the ISO instead of relying on
+          # 7z wildcard extraction, which can silently extract nothing on some
+          # ISO9660 layouts.
+          OVERLAY_PATH=$(7z l -slt "$ISO" | awk -F'= ' '/^Path = .*\.apkovl\.tar\.gz$/ {print $2; exit}')
+          echo "Overlay path: ${OVERLAY_PATH:-<none>}"
+          test -n "$OVERLAY_PATH"
+          7z e -y "$ISO" "$OVERLAY_PATH" -oinspect
           OVERLAY=$(find inspect -type f -name '*.apkovl.tar.gz' -print -quit)
+          echo "Extracted overlay: ${OVERLAY:-<none>}"
           test -n "$OVERLAY"
           mkdir -p inspect/rootfs
           tar -xzf "$OVERLAY" -C inspect/rootfs
+          echo '--- Helium files ---'
+          ls -l inspect/rootfs/usr/local/lib/helium/ inspect/rootfs/usr/local/bin/helium inspect/rootfs/usr/share/applications/helium.desktop
+          echo '--- Flathub file ---'
+          cat inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
           test -x inspect/rootfs/usr/local/lib/helium/helium.AppImage
           test -x inspect/rootfs/usr/local/bin/helium
           test -f inspect/rootfs/usr/share/applications/helium.desktop
           test -f inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
-          grep -q 'https://dl.flathub.org/repo/flathub.flatpakrepo' inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
+          grep -Fq 'https://dl.flathub.org/repo/flathub.flatpakrepo' inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
 
       - name: BIOS boot test - 3 GB RAM / 2 CPU
         run: |
@@ -65,6 +79,7 @@ jobs:
           test "$RC" = 124 || test "$RC" = 0
 
       - name: Upload ISO and test logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: feather-light-os-v2-cosmic-x86_64
