@@ -19,7 +19,7 @@ rc_add() {
     ln -sf "/etc/init.d/$1" "$tmp/etc/runlevels/$2/$1"
 }
 
-mkdir -p "$tmp/etc" "$tmp/etc/network" "$tmp/etc/flatpak/remotes.d"
+mkdir -p "$tmp/etc" "$tmp/etc/network" "$tmp/etc/flatpak/remotes.d" "$tmp/var/lib/flatpak"
 makefile root:root 0644 "$tmp/etc/hostname" <<EOF
 $HOSTNAME
 EOF
@@ -32,13 +32,18 @@ auto eth0
 iface eth0 inet dhcp
 EOF
 
-# Use Flathub's official repository file rather than embedding a key by hand.
-curl -fsSL --retry 3 https://dl.flathub.org/repo/flathub.flatpakrepo \
-  -o "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
+# Alpine's official Flathub setup uses this repository URL.
+FLATHUB_URL="https://dl.flathub.org/repo/flathub.flatpakrepo"
+curl -fsSL --retry 3 "$FLATHUB_URL" -o "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
 chmod 0644 "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
+# Fail the image build if the downloaded repository definition is not the
+# official Flathub definition we expect.
+grep -Fq "$FLATHUB_URL" "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo" || {
+    echo "ERROR: downloaded Flathub repository definition does not contain $FLATHUB_URL" >&2
+    exit 1
+}
 
 # Fetch the current official Helium Linux x86_64 AppImage during image creation.
-# The official Helium download page currently provides 64-bit AppImage and tarball builds.
 mkdir -p "$tmp/usr/local/lib/helium" "$tmp/usr/share/applications"
 HELIUM_DIR="$tmp/usr/local/lib/helium"
 API_JSON="$tmp/helium-release.json"
