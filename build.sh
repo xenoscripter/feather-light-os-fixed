@@ -22,18 +22,12 @@ apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mto
 mkdir -p "$WORK/apk-cache" "$WORK/tmp" "$WORK/mkimage"
 export TMPDIR="$ROOT/$WORK/tmp"
 
-# Alpine has moved update-kernel between package releases. Never assume it is
-# /sbin/update-kernel: resolve the installed helper first. The previous build
-# failed before mkimage even started because that hard-coded path did not exist.
 UPDATE_KERNEL="$(command -v update-kernel 2>/dev/null || true)"
 if [ -z "$UPDATE_KERNEL" ]; then
     UPDATE_KERNEL="$(find /sbin /usr/sbin /usr/bin /usr/libexec -type f -name update-kernel -print -quit 2>/dev/null || true)"
 fi
-
 if [ -n "$UPDATE_KERNEL" ] && [ -f "$UPDATE_KERNEL" ]; then
     cp "$UPDATE_KERNEL" "$WORK/update-kernel.orig"
-    # Only patch when the helper actually contains the alternate-root ROOT
-    # assignment. This avoids corrupting newer Alpine implementations.
     if grep -q 'ROOT=' "$UPDATE_KERNEL"; then
         awk '
           { print }
@@ -44,25 +38,25 @@ if [ -n "$UPDATE_KERNEL" ] && [ -f "$UPDATE_KERNEL" ]; then
         ' "$WORK/update-kernel.orig" > "$WORK/update-kernel.patched"
         install -m 0755 "$WORK/update-kernel.patched" "$UPDATE_KERNEL"
     fi
-else
-    echo "INFO: update-kernel is not installed in the host container; mkimage will provide/use its own helper."
 fi
 
-# Alpine apk-tools v3 treats --no-chown as an alias for --usermode, which is
-# rejected when mkimage runs as root. Remove those legacy flags from the actual
-# mkimage scripts after aports is cloned.
 if [ ! -d "$APORTS/.git" ]; then
     git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"
 fi
 mkdir -p "$APORTS/scripts"
 cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
-chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
+# mkimage invokes the overlay helper through fakeroot from the aports scripts
+# directory. Ensure it is executable there, not only in the source tree.
+chmod 0755 "$APORTS/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
+# Make the helper explicitly usable through the exact relative name expected by
+# mkimage.sh and verify the interpreter is present.
+[ -x "$APORTS/scripts/genapkovl-feather.sh" ] || { echo "ERROR: genapkovl-feather.sh is not executable" >&2; exit 1; }
+head -n 1 "$APORTS/scripts/genapkovl-feather.sh" | grep -q '^#!/bin/sh' || { echo "ERROR: invalid genapkovl-feather.sh interpreter" >&2; exit 1; }
 
 find "$APORTS/scripts" -type f -name '*.sh' -exec sed -i \
   -e 's/--no-chown//g' \
   -e 's/--usermode//g' {} +
-
 if grep -R -n -E -- '--no-chown|--usermode' "$APORTS/scripts/mkimage.sh" "$APORTS/scripts/mkimg"*.sh 2>/dev/null; then
     echo "ERROR: incompatible apk v3 usermode flags remain in mkimage scripts" >&2
     exit 1
