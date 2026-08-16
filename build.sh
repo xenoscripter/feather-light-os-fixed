@@ -30,12 +30,19 @@ cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 
-# Alpine apk 3.x removed the old --no-chown spelling used by older mkimage
-# scripts. apk reports this as the misleading "--usermode not allowed as root".
-# Remove both legacy spellings from every mkimage helper before the build.
-find "$APORTS/scripts" -type f \( -name 'mkimage*.sh' -o -name 'mkimg*.sh' \) -exec sed -i \
-  -e 's/[[:space:]]--no-chown\([[:space:]]\|$\)/ /g' \
-  -e 's/[[:space:]]--usermode\([[:space:]]\|$\)/ /g' {} +
+# apk-tools v3 treats --no-chown as an alias for --usermode, which is rejected
+# when mkimage is running as root. Patch the actual checked-out mkimage scripts,
+# including mkimage.sh itself, before invoking the builder. Do not depend on a
+# particular helper filename or whitespace layout.
+find "$APORTS/scripts" -type f -name '*.sh' -exec sed -i \
+  -e 's/--no-chown//g' \
+  -e 's/--usermode//g' {} +
+
+# Fail early if the incompatible flags survived the patch.
+if grep -R -n -E -- '--no-chown|--usermode' "$APORTS/scripts/mkimage.sh" "$APORTS/scripts/mkimg"*.sh 2>/dev/null; then
+    echo "ERROR: incompatible apk v3 usermode flags remain in mkimage scripts" >&2
+    exit 1
+fi
 
 mkdir -p /root/.abuild
 if [ ! -f /root/.abuild/abuild.conf ]; then
