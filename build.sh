@@ -22,7 +22,10 @@ mkdir -p "$APORTS/scripts"
 cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
+# Compatibility fixes for current Alpine Edge apk-tools.
 grep -RIl -- '--no-chown' "$APORTS/scripts" | while read -r f; do sed -i 's/[[:space:]]--no-chown//g' "$f"; done
+mkdir -p "$WORK/mkimage/apk-cache"
+sed -i 's#--cache-dir "$APKROOT/etc/apk/cache"#--cache-dir "$WORKDIR/apk-cache"#' "$APORTS/scripts/mkimg.base.sh"
 mkdir -p /root/.abuild
 if [ ! -f /root/.abuild/abuild.conf ]; then abuild-keygen -a -n >/dev/null 2>&1 || true; fi
 export TMPDIR="$WORK/tmp"
