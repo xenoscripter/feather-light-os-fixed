@@ -35,9 +35,6 @@ jobs:
           ISO=out/feather-light-os-v2-cosmic-x86_64.iso
           rm -rf inspect
           mkdir -p inspect
-          # Resolve the actual archive path from the ISO instead of relying on
-          # 7z wildcard extraction, which can silently extract nothing on some
-          # ISO9660 layouts.
           OVERLAY_PATH=$(7z l -slt "$ISO" | awk -F'= ' '/^Path = .*\.apkovl\.tar\.gz$/ {print $2; exit}')
           echo "Overlay path: ${OVERLAY_PATH:-<none>}"
           test -n "$OVERLAY_PATH"
@@ -55,7 +52,8 @@ jobs:
           test -x inspect/rootfs/usr/local/bin/helium
           test -f inspect/rootfs/usr/share/applications/helium.desktop
           test -f inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
-          grep -Fq 'https://dl.flathub.org/repo/flathub.flatpakrepo' inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
+          grep -Eq '^\[Flatpak Repo\]$' inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
+          grep -Eq '^Url=https://dl\.flathub\.org/repo/?$' inspect/rootfs/etc/flatpak/remotes.d/flathub.flatpakrepo
 
       - name: BIOS boot test - 3 GB RAM / 2 CPU
         run: |
@@ -76,6 +74,7 @@ jobs:
           set -e
           cat qemu-uefi.log
           ! grep -Eqi 'kernel panic|/sbin/init not found|attempted to kill init' qemu-uefi.log
+          grep -Eqi 'Linux version|Alpine|init|greetd|cosmic' qemu-uefi.log
           test "$RC" = 124 || test "$RC" = 0
 
       - name: Upload ISO and test logs
