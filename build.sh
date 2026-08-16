@@ -19,18 +19,10 @@ fi
 apk update
 apk add --no-cache bash git alpine-conf syslinux xorriso squashfs-tools grub mtools curl jq ca-certificates abuild
 
-# mkimage expects a writable APK cache/database. Keep these paths inside the
-# build workspace so they are guaranteed to exist in the container.
 mkdir -p "$WORK/apk-cache" "$WORK/apk-db" "$WORK/tmp" "$WORK/mkimage"
 export APK_CACHE_DIR="$ROOT/$WORK/apk-cache"
 export APK_DB_DIR="$ROOT/$WORK/apk-db"
 export TMPDIR="$ROOT/$WORK/tmp"
-
-# Use an isolated apk configuration for the host-side mkimage environment.
-cat > "$WORK/apk.conf" <<EOF
-CACHE_DIR=$APK_CACHE_DIR
-EOF
-export APK_CONFIG="$ROOT/$WORK/apk.conf"
 
 if [ ! -d "$APORTS/.git" ]; then
     git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git "$APORTS"
@@ -40,8 +32,6 @@ cp "$ROOT/scripts/mkimg.feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 cp "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/genapkovl-feather.sh"
 chmod +x "$ROOT/scripts/genapkovl-feather.sh" "$APORTS/scripts/mkimg.feather.sh"
 
-# Patch only the cache argument used by mkimage's chroot APK setup. The
-# database must live beside the cache, not at a missing /etc/apk location.
 if [ -f "$APORTS/scripts/mkimg.base.sh" ]; then
     sed -i "s#--cache-dir \"\$APKROOT/etc/apk/cache\"#--cache-dir \"$APK_CACHE_DIR\"#g" "$APORTS/scripts/mkimg.base.sh"
 fi
