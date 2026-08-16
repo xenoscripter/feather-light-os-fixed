@@ -32,14 +32,19 @@ auto eth0
 iface eth0 inet dhcp
 EOF
 
-# Alpine's official Flathub setup uses this repository URL.
-FLATHUB_URL="https://dl.flathub.org/repo/flathub.flatpakrepo"
-curl -fsSL --retry 3 "$FLATHUB_URL" -o "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
-chmod 0644 "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
-# The .flatpakrepo metadata is a downloaded repository definition; the URL
-# used to fetch it is not required to appear inside the metadata itself.
-grep -Fq '[Flatpak Repo]' "$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo" || {
+# Install the official Flathub repository definition for Alpine.
+FLATHUB_REPO_URL="https://dl.flathub.org/repo/flathub.flatpakrepo"
+FLATHUB_FILE="$tmp/etc/flatpak/remotes.d/flathub.flatpakrepo"
+curl -fsSL --retry 3 "$FLATHUB_REPO_URL" -o "$FLATHUB_FILE"
+chmod 0644 "$FLATHUB_FILE"
+# Validate the downloaded metadata, but do not require the download URL to
+# appear verbatim in the file. Flatpak repo metadata uses a base repository URL.
+grep -Fq '[Flatpak Repo]' "$FLATHUB_FILE" || {
     echo "ERROR: downloaded Flathub repository definition is invalid" >&2
+    exit 1
+}
+grep -Eq '^Url=https://(dl\.)?flathub.org/repo/?$' "$FLATHUB_FILE" || {
+    echo "ERROR: downloaded Flathub repository definition has an invalid Url" >&2
     exit 1
 }
 
