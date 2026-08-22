@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+APP='FeatherBlox'
+SOBER='org.vinegarhq.Sober'
+
+say() {
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --info --title="$APP" --text="$1" 2>/dev/null || true
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+fail() {
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="$APP" --text="$1" 2>/dev/null || true
+  else
+    printf '%s\n' "ERROR: $1" >&2
+  fi
+  exit 1
+}
+
+# FeatherBlox is intentionally a thin, low-overhead launcher. The actual
+# Roblox runtime is Sober, distributed by its upstream project through Flathub.
+if ! command -v flatpak >/dev/null 2>&1; then
+  fail 'Flatpak is not installed. Run: sudo apt update && sudo apt install flatpak'
+fi
+
+if ! flatpak info "$SOBER" >/dev/null 2>&1; then
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --question --title="$APP" --text='Roblox runtime is not installed. Install it now?' || exit 0
+  else
+    printf '%s\n' 'Sober is not installed. Install it with: flatpak install flathub org.vinegarhq.Sober'
+    exit 1
+  fi
+  flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+  flatpak install -y flathub "$SOBER"
+fi
+
+# Basic hardware hinting. We do not force unsupported GPU flags.
+CPU_CORES=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 'unknown')
+RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || printf 'unknown')
+GPU=$(lspci 2>/dev/null | grep -Ei 'VGA|3D|Display' | head -n 1 || printf 'unknown GPU')
+
+if [ "${FEATHERBLOX_DEBUG:-0}" = 1 ]; then
+  printf '%s\n' "FeatherBlox hardware: ${CPU_CORES} CPU thread(s), ${RAM_MB} MB RAM, ${GPU}"
+fi
+
+exec flatpak run "$SOBER" "$@"
